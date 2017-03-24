@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=yes">
+    <title>Web Speech API Demo</title>
+    <meta name="title" content='Web Speech API Demo'>
+    <meta name="robots" content='index,follow'>
+    <meta name="description" content='Demo of what the web speech api can do for websites.'>
+</head>
+
+<body>
+    <main>
+        <style>
+            main {
+                padding: 0 15px;
+            }
+            .centered {
+                text-align: center;
+            }
+            .conversation-box-el {
+                display: block;
+                margin: 0 auto;
+                width: 100%;
+                min-width: 220px;
+                max-width: 640px;
+                max-height: 400px;
+                overflow-y: auto;
+                border: 1px solid #cacaca;
+                border-radius: 5px;
+            }
+            .conversation-box-el > * {
+                display: flex;
+                padding: 15px;
+            }
+            .conversation-box-el > .assistant-speech {
+                justify-content: flex-start;
+            }
+            .conversation-box-el > .user-speech {
+                justify-content: flex-end;
+            }
+            .conversation-box-el > * > * {
+                border: 1px solid #ff9800;
+                border-radius: 5px;
+                padding: 15px;
+                margin: 0;
+                width: 40%;
+                min-width: 220px;
+            }
+        </style>
+        <div class="centered">
+            <h1>Web Speech API Demo</h1>
+            <p><em>(Only supported on Chrome for desktop and mobile, and MAYBE on Firefox for mobile)</em></p>
+        </div>
+        <div class="centered">
+            <p><a id="wake-up-assistant" href="javascript:;">Wake me up</a></p>
+        </div>
+        <div id="conversation-box" class="conversation-box-el"></div>
+    </main>
+    <script>
+        var Assistant = (function(){
+            'use strict'
+
+            var Broadcast = {
+                braodcasts: {},
+                listen: function(broadcastName, fn) {
+                    this.braodcasts[broadcastName] = this.braodcasts[broadcastName] || [];
+                    this.braodcasts[broadcastName].push(fn);
+                },
+                drop: function(broadcastName, fn) {
+                    if (this.braodcasts[broadcastName]) {
+                        for (var i = 0; i < this.braodcasts[broadcastName].length; i++) {
+                            if (this.braodcasts[broadcastName][i] === fn) {
+                                this.braodcasts[broadcastName].splice(i, 1);
+                                break;
+                            }
+                        }
+                    }
+                },
+                broadcast: function(broadcastName, data) {
+                    if (this.braodcasts[broadcastName]) {
+                        this.braodcasts[broadcastName].forEach(function(fn) {
+                            fn(data);
+                        });
+                    }
+                }
+            };
+
+            var wakeEl = document.getElementById('wake-up-assistant'),
+                conversationBox = document.getElementById('conversation-box'),
+                speechSynth = window.speechSynthesis || false,
+                voices = [],
+                introMsg = `Hello! I'm your assistant. I can do things for you. Like, help you navigate the site; or give you updates on Suvi's new projects. So, how may I help?`,
+                wakeupMsg = `Hi! How may I help?`,
+                utterance = (!!window.SpeechSynthesisUtterance) ? new window.SpeechSynthesisUtterance() : false,
+                interactions = {
+                    gaveIntro : false,
+                    speaking : false,
+                    listenToUser : false,
+                    executeCommand : false,
+                    selectedCommand : {}
+                },
+                speechRec = (!!window.SpeechRecognition || !!window.webkitSpeechRecognition || !!window.mozSpeechRecognition || !!window.msSpeechRecognition) ? new (window.SpeechRecognition || window.webkitSpeechRecognition || window.mozSpeechRecognition || window.msSpeechRecognition)() : false;
+
+            speechRec.continuous = false;
+            speechRec.interimResults = false;
+            speechRec.lang = 'en-US';
+
+            var generalCommands = [
+                {"command" : "home", "href" : "https://svignara.github.io/"},
+                {"command" : "experiments", "href" : "https://svignara.github.io/experiments/"},
+                {"command" : "front end", "href" : "https://svignara.github.io/front-end/"},
+                {"command" : "who created you", "response" : "The man. The myth. The legend. Suvi! He created me."},
+                {"command" : "new project", "response" : "I'm his newest project. He's also toyed around with the speed force. As well as a boring conversion rate API." }
+            ];
+
+            //Helper Functions
+
+            function _findGoogleVoice(voice){
+                return voice.name === 'Google US English';
+            }
+
+            function _findCommand(msg){
+                var cmd = generalCommands.find(function(command){
+                    return msg.indexOf(command.command) > -1;
+                });
+                return cmd;
+            }
+
+            function _appendMsgToConvoBox(msg, whoSaidIt){
+                var chatRow = document.createElement('div'),
+                    chatBubble = document.createElement('p'),
+                    content = document.createTextNode(msg);
+                chatRow.className = (whoSaidIt === 'user') ? 'user-speech' : 'assistant-speech';
+                chatBubble.appendChild(content);
+                chatRow.appendChild(chatBubble);
+                conversationBox.appendChild(chatRow);
+                if (!!chatRow.scrollIntoViewIfNeeded){
+                    chatRow.scrollIntoViewIfNeeded();
+                }else{
+                    conversationBox.scrollTop = conversationBox.scrollHeight;
+                }
+            }
+
+            function respondToUserCommand(command){
+                interactions.executeCommand = !!command;
+                interactions.selectedCommand = (interactions.executeCommand) ? command : {};
+
+                if (interactions.executeCommand){
+                    if (interactions.selectedCommand.response){
+                        utterance.text = interactions.selectedCommand.response;
+                    }else if (interactions.selectedCommand.href){
+                        utterance.text = `Ok! Let's go to the ${interactions.selectedCommand.command} page.`;
+                    }
+                }else{
+                    utterance.text = `I'm sorry. I don't understand.`;
+                }
+                speechSynth.speak(utterance);
+            }
+
+            function respondToProfanity(){
+                utterance.text = `Hey! That's not very nice!`;
+                speechSynth.speak(utterance);
+            }
+
+            // End of Helper Functions
+
+            // Broadcasting functions
+
+            function broadcastVoiceChange(){
+                speechSynth.addEventListener('voiceschanged', function(){
+                    console.log(`My voice is changing.`);
+                    Broadcast.broadcast('/assistant/voicechange', speechSynth);
+                }, {once : true});
+            }
+
+            function broadcastWakeUp(){
+                wakeEl.addEventListener('click', function(event){
+                    event.preventDefault();
+                    console.log(`You're trying to wake me up.`);
+                    interactions.speaking = false;
+                    interactions.listenToUser = true;
+                    interactions.executeCommand = false;
+                    interactions.selectedCommand = {};
+                    Broadcast.broadcast('/assistant/wakeup', { interactions : interactions });
+                    if (!interactions.gaveIntro){
+                        interactions.gaveIntro = true;
+                    }
+                });
+            }
+
+            function broadcastUtteranceEvents(){
+                utterance.addEventListener('start', function(event){
+                    console.log(`I've started to speak`);
+                    interactions.speaking = true;
+                    Broadcast.broadcast('/assistant/speech/start', { event : event, interactions : interactions });
+                });
+                utterance.addEventListener('end', function(event){
+                    console.log(`I'm done speaking`);
+                    interactions.speaking = false;
+                    Broadcast.broadcast('/assistant/speech/end', { event : event, interactions : interactions });
+                });
+                utterance.addEventListener('error', function(event){
+                    console.log(`Whoops! Something went wrong..?`);
+                    Broadcast.broadcast('/assistant/speech/error', { event : event, interactions : interactions });
+                });
+            }
+
+            function broadcastSpeechRecognitionEvents(){
+                speechRec.addEventListener('start', function(event){
+                    console.log(`I've started to listen to you.`);
+                    Broadcast.broadcast('/assistant/listening/start', { event : event, interactions : interactions });
+                });
+                speechRec.addEventListener('end', function(event){
+                    console.log(`I'm done listening to you.`);
+                    interactions.listenToUser = false;
+                    Broadcast.broadcast('/assistant/listening/end', { event : event, interactions : interactions });
+                });
+                speechRec.addEventListener('result', function(event){
+                    console.log(`I recognized something you said.`);
+                    interactions.listenToUser = false;
+                    Broadcast.broadcast('/assistant/listening/recognized', { event : event, interactions : interactions });
+                });
+                speechRec.addEventListener('error', function(event){
+                    console.log(`Whoops! Something went wrong..?`);
+                    interactions.listenToUser = false;
+                    Broadcast.broadcast('/assistant/listening/error', { event : event, interactions : interactions });
+                });
+            }
+
+            // End of Broadcasting functions
+
+            // Broadcast Listener functions
+
+            function setVoice(){
+                Broadcast.listen('/assistant/voicechange', function(synth){
+                    voices = speechSynth.getVoices();
+                    var preferredVoice = voices.find(_findGoogleVoice);
+                    utterance.voice = preferredVoice ? preferredVoice : voices[0];
+                    utterance.rate = 1;
+                    console.log(`Voice is all set.`);
+                });
+            }
+
+            function assistantAwoken(){
+                Broadcast.listen('/assistant/wakeup', function(data){
+                    if (data.interactions.speaking){
+                        return false;
+                    }
+                    utterance.text = (data.interactions.gaveIntro) ? wakeupMsg : introMsg;
+                    speechSynth.speak(utterance);
+                    console.log(`I'm awake!`);
+                });
+            }
+
+            function assistantSpeechStart(){
+                Broadcast.listen('/assistant/speech/start', function(data){
+                    console.log('Speech start data: ', data);
+                });
+            }
+            function assistantSpeechEnd(){
+                Broadcast.listen('/assistant/speech/end', function(data){
+                    console.log('Speech end data: ', data);
+                });
+            }
+            function beginRecognition(){
+                Broadcast.listen('/assistant/speech/end', function(data){
+                    if (data.interactions.listenToUser){
+                        speechRec.start();
+                    }
+                });
+            }
+
+            function userSpeechStart(){
+                Broadcast.listen('/assistant/listening/start', function(data){
+                    console.log('Recognition start data: ', data);
+                });
+            }
+            function userSpeechEnd(){
+                Broadcast.listen('/assistant/listening/end', function(data){
+                    console.log('Recognition end data: ', data);
+                });
+            }
+            function userSpeechRecognized(){
+                Broadcast.listen('/assistant/listening/recognized', function(data){
+                    console.log('Recognition result data: ', data);
+                });
+            }
+
+            function processUserMessage(){
+                Broadcast.listen('/assistant/listening/recognized', function(data){
+                    var msg = data.event.results[0][0].transcript;
+                    if (msg.indexOf(`***`) > -1){
+                        respondToProfanity();
+                        return false;
+                    }
+                    console.log(`You said ${msg}`);
+                    respondToUserCommand(_findCommand(msg));
+                });
+            }
+            function doCommand(){
+                Broadcast.listen('/assistant/speech/end', function(data){
+                    if (!data.interactions.executeCommand){
+                        console.log(`nothing for me to execute`);
+                        return false;
+                    }
+                    console.log(`I should be doing something`);
+                    if (data.interactions.selectedCommand.href){
+                        window.location.href = data.interactions.selectedCommand.href;
+                    }
+                });
+            }
+
+            // End of Broadcast Listener functions
+
+            // Listeners for UI on DOM
+
+            function displayAssistantSpeech(){
+                Broadcast.listen('/assistant/speech/start', function(data){
+                    _appendMsgToConvoBox(data.event.utterance.text, 'assistant');
+                });
+            }
+
+            function displayUserSpeech(){
+                Broadcast.listen('/assistant/listening/recognized', function(data){
+                    _appendMsgToConvoBox(data.event.results[0][0].transcript, 'user');
+                });
+            }
+
+            broadcastVoiceChange();
+            broadcastWakeUp();
+            broadcastUtteranceEvents();
+            broadcastSpeechRecognitionEvents();
+
+            setVoice();
+            assistantAwoken();
+            assistantSpeechStart();
+            assistantSpeechEnd();
+            beginRecognition();
+            userSpeechStart();
+            userSpeechEnd();
+            userSpeechRecognized();
+            processUserMessage();
+            doCommand();
+
+            displayAssistantSpeech();
+            displayUserSpeech();
+
+            return {
+                Broadcast : Broadcast,
+                speechSynthesis : speechSynth,
+                utterance : utterance,
+                speechRecognition : speechRec
+            }
+        })();
+    </script>
+</body>
+
+</html>

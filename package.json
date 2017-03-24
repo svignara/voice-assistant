@@ -1,0 +1,13 @@
+{
+  "name": "voice-assistant",
+  "version": "1.0.0",
+  "description": "Testing out Web Speech API and seeing how it can be used to create an intelligent Voice Assistant for websites.",
+  "scripts": {
+  	"start" : "node node_modules/.bin/http-server ."
+  },
+  "author": "Suvi",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "http-server": "^0.9.0"
+  }
+}

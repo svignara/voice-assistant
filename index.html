@@ -19,12 +19,14 @@
             .centered {
                 text-align: center;
             }
-            .conversation-box-el {
+            .copy-container {
                 display: block;
                 margin: 0 auto;
                 width: 100%;
                 min-width: 220px;
                 max-width: 640px;
+            }
+            .conversation-box-el {
                 max-height: 400px;
                 overflow-y: auto;
                 border: 1px solid #cacaca;
@@ -48,15 +50,41 @@
                 width: 40%;
                 min-width: 220px;
             }
+
+            .assistant-ui-container.hide {
+                display: none;
+            }
+            .assistant-ui-unavailable-msg {
+                display: none;
+                color: red;
+            }
+            .assistant-ui-unavailable-msg.show {
+                display: block;
+            }
         </style>
         <div class="centered">
             <h1>Web Speech API Demo</h1>
             <p><em>(Only supported on Chrome for desktop and mobile, and MAYBE on Firefox for mobile)</em></p>
         </div>
-        <div class="centered">
-            <p><a id="wake-up-assistant" href="javascript:;">Wake me up</a></p>
+        <div id="assistant-ui" class="assistant-ui-container">
+            <div class="centered">
+                <p><a id="wake-up-assistant" href="javascript:;">Wake me up</a></p>
+            </div>
+            <div class="copy-container">
+                <p>Here is a list of supported commands for the purpose of this demo:</p>
+                <ul>
+                    <li>Go to home</li>
+                    <li>Go to experiments</li>
+                    <li>Go to the front-end page</li>
+                    <li>What are his new projects?</li>
+                    <li>Who created you?</li>
+                </ul>
+            </div>
+            <div id="conversation-box" class="conversation-box-el copy-container"></div>
         </div>
-        <div id="conversation-box" class="conversation-box-el"></div>
+        <div id="assistant-ui-unavailable-msg" class="assistant-ui-unavailable-msg">
+            <p>Aw boo! Looks like you're using a browser that doesn't fully support Web Speech API features. Please use the latest version of Chrome for the best experience. Hopefully these other browsers will follow suit sooner rather than later!</p>
+        </div>
     </main>
     <script>
         var Assistant = (function(){
@@ -89,9 +117,11 @@
 
             var wakeEl = document.getElementById('wake-up-assistant'),
                 conversationBox = document.getElementById('conversation-box'),
+                assistantUIEl = document.getElementById('assistant-ui'),
+                assistantUIUnavailable = document.getElementById('assistant-ui-unavailable-msg'),
                 speechSynth = window.speechSynthesis || false,
                 voices = [],
-                introMsg = `Hello! I'm your assistant. I can do things for you. Like, help you navigate the site; or give you updates on Suvi's new projects. So, how may I help?`,
+                introMsg = `Hello! I'm your voice assistant. I can do things for you. Like, help you navigate the site; or give you updates on Suvi's new projects. So, how may I help?`,
                 wakeupMsg = `Hi! How may I help?`,
                 utterance = (!!window.SpeechSynthesisUtterance) ? new window.SpeechSynthesisUtterance() : false,
                 interactions = {
@@ -103,9 +133,11 @@
                 },
                 speechRec = (!!window.SpeechRecognition || !!window.webkitSpeechRecognition || !!window.mozSpeechRecognition || !!window.msSpeechRecognition) ? new (window.SpeechRecognition || window.webkitSpeechRecognition || window.mozSpeechRecognition || window.msSpeechRecognition)() : false;
 
-            speechRec.continuous = false;
-            speechRec.interimResults = false;
-            speechRec.lang = 'en-US';
+            if (speechRec){
+                speechRec.continuous = false;
+                speechRec.interimResults = false;
+                speechRec.lang = 'en-US';
+            }
 
             var generalCommands = [
                 {"command" : "home", "href" : "https://svignara.github.io/"},
@@ -172,7 +204,7 @@
                 speechSynth.addEventListener('voiceschanged', function(){
                     console.log(`My voice is changing.`);
                     Broadcast.broadcast('/assistant/voicechange', speechSynth);
-                }, {once : true});
+                });
             }
 
             function broadcastWakeUp(){
@@ -314,7 +346,7 @@
 
             // End of Broadcast Listener functions
 
-            // Listeners for UI on DOM
+            // DOM UI
 
             function displayAssistantSpeech(){
                 Broadcast.listen('/assistant/speech/start', function(data){
@@ -328,24 +360,36 @@
                 });
             }
 
-            broadcastVoiceChange();
-            broadcastWakeUp();
-            broadcastUtteranceEvents();
-            broadcastSpeechRecognitionEvents();
+            function displayAssistantUnavailable(){
+                assistantUIEl.classList.add('hide');
+                assistantUIUnavailable.classList.add('show');
+            }
 
-            setVoice();
-            assistantAwoken();
-            assistantSpeechStart();
-            assistantSpeechEnd();
-            beginRecognition();
-            userSpeechStart();
-            userSpeechEnd();
-            userSpeechRecognized();
-            processUserMessage();
-            doCommand();
+            if (speechSynth && utterance && speechRec){
+                // Broadcasting functions
+                broadcastVoiceChange();
+                broadcastWakeUp();
+                broadcastUtteranceEvents();
+                broadcastSpeechRecognitionEvents();
 
-            displayAssistantSpeech();
-            displayUserSpeech();
+                // Broadcast listeners
+                setVoice();
+                assistantAwoken();
+                assistantSpeechStart();
+                assistantSpeechEnd();
+                beginRecognition();
+                userSpeechStart();
+                userSpeechEnd();
+                userSpeechRecognized();
+                processUserMessage();
+                doCommand();
+
+                // DOM UI
+                displayAssistantSpeech();
+                displayUserSpeech();
+            }else {
+                displayAssistantUnavailable();
+            }
 
             return {
                 Broadcast : Broadcast,

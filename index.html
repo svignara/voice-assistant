@@ -230,7 +230,7 @@
                 speechSynth.addEventListener('voiceschanged', function(){
                     console.log(`My voice is changing.`);
                     Broadcast.broadcast('/assistant/voicechange', speechSynth);
-                });
+                }, {once : true});
             }
 
             function broadcastWakeUp(){
